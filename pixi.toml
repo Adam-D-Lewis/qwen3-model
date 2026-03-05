@@ -7,14 +7,21 @@ version = "0.1.0"
 [dependencies]
 python = "3.12.*"
 huggingface_hub = ">=0.20"
+llama-cpp-python = ">=0.3"
 
 # ---------------------------------------------------------------------------
-# Tasks (shared across environments)
+# Tasks (default environment — CPU, works on all platforms)
 # ---------------------------------------------------------------------------
 [tasks]
 
 # Download Qwen3-4B Q4_K_M GGUF (~2.7 GB) to models/ directory.
 download = "python -c \"from huggingface_hub import hf_hub_download; hf_hub_download('unsloth/Qwen3-4B-GGUF', 'Qwen3-4B-Q4_K_M.gguf', local_dir='models'); print('Download complete: models/Qwen3-4B-Q4_K_M.gguf')\""
+
+# Interactive terminal chat with Qwen3-4B (CPU).
+chat = { cmd = "llama-cli -m models/Qwen3-4B-Q4_K_M.gguf -cnv -ngl 0", depends-on = ["download"] }
+
+# Serve Qwen3-4B via OpenAI-compatible API at http://localhost:8000 (CPU).
+serve = { cmd = "python -m llama_cpp.server --model models/Qwen3-4B-Q4_K_M.gguf --n_gpu_layers 0 --n_ctx 8192 --host 0.0.0.0 --port 8000", depends-on = ["download"] }
 
 # Send a test chat completion to a running server.
 test-message = """python -c "
@@ -27,7 +34,7 @@ print(resp['choices'][0]['message']['content'])
 " """
 
 # ---------------------------------------------------------------------------
-# GPU / CUDA (default environment)
+# GPU / CUDA (opt-in: pixi run -e cuda ...)
 # ---------------------------------------------------------------------------
 [feature.cuda]
 channels = ["nvidia/label/cuda-12.4.0", "conda-forge"]
@@ -61,18 +68,8 @@ except (KeyboardInterrupt, EOFError): print(); print('Bye!')
 serve = { cmd = "python -m llama_cpp.server --model models/Qwen3-4B-Q4_K_M.gguf --n_gpu_layers -1 --n_ctx 8192 --host 0.0.0.0 --port 8000", depends-on = ["download"] }
 
 # ---------------------------------------------------------------------------
-# CPU-only fallback
-# ---------------------------------------------------------------------------
-[feature.cpu.dependencies]
-llama-cpp-python = ">=0.3"
-
-[feature.cpu.tasks]
-chat = { cmd = "llama-cli -m models/Qwen3-4B-Q4_K_M.gguf -cnv -ngl 0", depends-on = ["download"] }
-serve = { cmd = "python -m llama_cpp.server --model models/Qwen3-4B-Q4_K_M.gguf --n_gpu_layers 0 --n_ctx 8192 --host 0.0.0.0 --port 8000", depends-on = ["download"] }
-
-# ---------------------------------------------------------------------------
 # Environments
 # ---------------------------------------------------------------------------
 [environments]
-default = { features = ["cuda"], solve-group = "default" }
-cpu = { features = ["cpu"], solve-group = "cpu" }
+default = { solve-group = "default" }
+cuda = { features = ["cuda"], solve-group = "cuda" }

@@ -8,7 +8,7 @@ Run Qwen3-4B locally with llama.cpp — no Docker, no separate scripts, just `pi
 # Install pixi (if not already installed)
 curl -fsSL https://pixi.sh/install.sh | bash
 
-# Interactive chat in the terminal (GPU by default)
+# Interactive chat in the terminal (CPU by default)
 pixi run chat
 
 # Or start an OpenAI-compatible API server
@@ -20,12 +20,12 @@ pixi run test-message
 
 ## Environments
 
-The default environment assumes an NVIDIA GPU with CUDA support (Linux only). A CPU-only environment is available for systems without a GPU or for other platforms.
+The default environment runs on CPU and works on all platforms. A CUDA environment is available for Linux systems with an NVIDIA GPU.
 
 | Environment | Command | Backend |
 |-------------|---------|---------|
-| `default` | `pixi run chat` | CUDA (GPU, linux-64) |
-| `cpu` | `pixi run -e cpu chat` | CPU + BLAS (all platforms) |
+| `default` | `pixi run chat` | CPU + BLAS (all platforms) |
+| `cuda` | `pixi run -e cuda chat` | CUDA (GPU, linux-64) |
 
 ## Tasks
 
@@ -52,17 +52,17 @@ The default environment assumes an NVIDIA GPU with CUDA support (Linux only). A 
 ## Usage
 
 ```bash
-# GPU chat (default on Linux with NVIDIA GPU)
+# CPU chat (default, works everywhere)
 pixi run chat
 
-# CPU chat (any platform)
-pixi run -e cpu chat
+# GPU chat (Linux with NVIDIA GPU)
+pixi run -e cuda chat
 
-# GPU API server
+# CPU API server (default)
 pixi run serve
 
-# CPU API server
-pixi run -e cpu serve
+# GPU API server
+pixi run -e cuda serve
 
 # The server API is compatible with any OpenAI client
 curl http://localhost:8000/v1/chat/completions \
