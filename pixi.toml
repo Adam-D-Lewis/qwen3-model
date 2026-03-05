@@ -6,25 +6,18 @@ version = "0.1.0"
 
 [dependencies]
 python = "3.12.*"
-llama-cpp-python = ">=0.3"
 huggingface_hub = ">=0.20"
 
 # ---------------------------------------------------------------------------
-# Tasks
+# Tasks (shared across environments)
 # ---------------------------------------------------------------------------
 [tasks]
 
 # Download Qwen3-4B Q4_K_M GGUF (~2.7 GB) to models/ directory.
 download = "python -c \"from huggingface_hub import hf_hub_download; hf_hub_download('unsloth/Qwen3-4B-GGUF', 'Qwen3-4B-Q4_K_M.gguf', local_dir='models'); print('Download complete: models/Qwen3-4B-Q4_K_M.gguf')\""
 
-# Serve Qwen3-4B via OpenAI-compatible API at http://localhost:8000
-serve = { cmd = "python -m llama_cpp.server --model models/Qwen3-4B-Q4_K_M.gguf --n_gpu_layers -1 --n_ctx 8192 --host 0.0.0.0 --port 8000", depends-on = ["download"] }
-
-# Interactive terminal chat with Qwen3-4B.
-chat = { cmd = "llama-cli -m models/Qwen3-4B-Q4_K_M.gguf -cnv -ngl -1", depends-on = ["download"] }
-
 # Send a test chat completion to a running server.
-test-chat = """python -c "
+test-message = """python -c "
 import urllib.request, json
 req = urllib.request.Request('http://localhost:8000/v1/chat/completions',
     data=json.dumps({'model':'default','messages':[{'role':'user','content':'Hello! Who are you?'}],'max_tokens':128}).encode(),
@@ -32,3 +25,54 @@ req = urllib.request.Request('http://localhost:8000/v1/chat/completions',
 resp = json.loads(urllib.request.urlopen(req).read())
 print(resp['choices'][0]['message']['content'])
 " """
+
+# ---------------------------------------------------------------------------
+# GPU / CUDA (default environment)
+# ---------------------------------------------------------------------------
+[feature.cuda]
+channels = ["nvidia/label/cuda-12.4.0", "conda-forge"]
+platforms = ["linux-64"]
+system-requirements = { cuda = "12" }
+
+[feature.cuda.dependencies]
+cuda-toolkit = "12.4.*"
+
+[feature.cuda.pypi-dependencies]
+llama-cpp-python = { version = ">=0.3", index = "https://abetlen.github.io/llama-cpp-python/whl/cu124" }
+
+[feature.cuda.tasks]
+chat = { cmd = """python -c "
+import sys; from llama_cpp import Llama
+llm = Llama(model_path='models/Qwen3-4B-Q4_K_M.gguf', n_gpu_layers=-1, n_ctx=8192, verbose=False)
+msgs = []
+print('Chat with Qwen3-4B (Ctrl+C to quit)')
+print()
+try:
+ while True:
+  u = input('> ')
+  if not u.strip(): continue
+  msgs.append({'role':'user','content':u})
+  r = llm.create_chat_completion(msgs)
+  a = r['choices'][0]['message']['content']
+  print(); print(a); print()
+  msgs.append({'role':'assistant','content':a})
+except (KeyboardInterrupt, EOFError): print(); print('Bye!')
+" """, depends-on = ["download"] }
+serve = { cmd = "python -m llama_cpp.server --model models/Qwen3-4B-Q4_K_M.gguf --n_gpu_layers -1 --n_ctx 8192 --host 0.0.0.0 --port 8000", depends-on = ["download"] }
+
+# ---------------------------------------------------------------------------
+# CPU-only fallback
+# ---------------------------------------------------------------------------
+[feature.cpu.dependencies]
+llama-cpp-python = ">=0.3"
+
+[feature.cpu.tasks]
+chat = { cmd = "llama-cli -m models/Qwen3-4B-Q4_K_M.gguf -cnv -ngl 0", depends-on = ["download"] }
+serve = { cmd = "python -m llama_cpp.server --model models/Qwen3-4B-Q4_K_M.gguf --n_gpu_layers 0 --n_ctx 8192 --host 0.0.0.0 --port 8000", depends-on = ["download"] }
+
+# ---------------------------------------------------------------------------
+# Environments
+# ---------------------------------------------------------------------------
+[environments]
+default = { features = ["cuda"], solve-group = "default" }
+cpu = { features = ["cpu"], solve-group = "cpu" }
