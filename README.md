@@ -30,6 +30,7 @@ Conda and pixi use **virtual packages** — solver-visible packages that represe
 | `__glibc` | System glibc version |
 | `__osx` | macOS version |
 | `__linux` | Linux kernel version |
+| `__archspec` | CPU microarchitecture (e.g., x86_64_v3) |
 
 This project already uses pixi's version of this mechanism via `system-requirements`:
 
@@ -42,6 +43,45 @@ system-requirements = { cuda = "12", libc = "2.31" }
 ```
 
 These constraints tell the solver "this environment requires specific hardware" — the same concept as depending on a pseudo-package like `__cuda >=12`.
+
+### What's missing: GPU architecture, VRAM, and RAM
+
+Conda and pixi currently only express CUDA **driver version** — not GPU compute capability, VRAM, or system RAM. For LLM inference, these are the real constraints:
+
+| Constraint | Why it matters | Current support |
+|-----------|---------------|-----------------|
+| GPU compute capability (sm_XX) | vLLM requires ≥ 7.0 (Volta); bfloat16/FP8 requires ≥ 8.0 (Ampere) | **Not in conda/pixi**. Spack has `cuda_arch=80`; Nix has `cudaCapabilities = ["8.9"]` |
+| GPU VRAM | vLLM needs ~12 GB for Qwen3-4B; llama.cpp GGUF needs ~3 GB | **No package manager supports this** |
+| System RAM | CPU inference of a 4B Q4 model needs ~4-8 GB RAM | **No package manager supports this** |
+
+#### GPU architectures and LLM requirements
+
+| Architecture | Compute Capability | Example GPUs | LLM inference status |
+|---|---|---|---|
+| Pascal | sm_60-61 | GTX 1080, P100 | llama.cpp only; vLLM unsupported |
+| Volta | sm_70 | V100 | vLLM minimum; FP16 only |
+| Turing | sm_75 | RTX 2080, T4 | Supported; some quantization methods blocked |
+| Ampere | sm_80-86 | RTX 3090, A100 | Full support including bfloat16, FP8, all quantization |
+| Ada Lovelace | sm_89 | RTX 4090, L40 | Full support |
+| Hopper | sm_90 | H100 | Best performance, FP8 native |
+
+#### Precedent from other package managers
+
+**Spack** has the strongest model for GPU architecture constraints. Its `CudaPackage` mixin provides a `cuda_arch` variant:
+
+```yaml
+# spack packages.yaml — set default GPU architecture for all packages
+packages:
+  all:
+    variants:
+      - cuda_arch=80
+```
+
+Packages propagate `cuda_arch` through their dependency tree, and each architecture value constrains which CUDA toolkit versions are compatible (e.g., `cuda_arch=90` requires `cuda@11.8:`).
+
+**Nix** takes a similar approach with `cudaCapabilities` in the nixpkgs config, and even supports per-architecture package sets: `pkgsForCudaArch.sm_89.python3Packages.torch`.
+
+Neither Spack nor Nix handle VRAM or RAM — those remain an open gap across all package managers.
 
 ### Package variants
 
@@ -58,6 +98,8 @@ You can't have entirely universal binary artifacts. The options are:
 ### How this project maps to these patterns
 
 This project uses **pre-built variants via separate pixi environments** — the manual version of what package variants automate. The `cuda` environment pulls CUDA-specific wheels from a dedicated index (`abetlen.github.io/llama-cpp-python/whl/cu124`), while `default` uses the CPU-only build from PyPI. A more automated approach would encode hardware requirements as package-level constraints so the solver itself picks the right backend, removing the need for users to manually select `-e cuda` vs `-e vllm`.
+
+Ideally, pixi could gain support for additional virtual packages like `__cuda_arch` (compute capability), `__gpu_vram`, and `__ram` — allowing environments to declare constraints like "needs Ampere+ GPU with 12GB+ VRAM" directly in `pixi.toml`. Until then, the auto-detection tool (see Future Directions) is the practical workaround.
 
 ## Future directions
 
