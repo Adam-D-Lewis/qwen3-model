@@ -16,8 +16,52 @@ The objective was to explore whether a single pixi workspace could provide a tru
 
 **Dependency isolation was essential.** vLLM, llama-cpp-python (CUDA), and llama-cpp-python (CPU) each have conflicting transitive dependencies (numpy versions, transformers versions, glibc requirements for wheel compatibility). Pixi's feature/environment system handled this well, but it meant dependencies couldn't be shared at the workspace level — each environment needed its own isolated dependency tree.
 
+## Hardware compatibility
+
+Matching environments to hardware is a fundamental problem in package management. This project currently handles it with manually-selected pixi environments (`default`, `cuda`, `vllm`), but the conda ecosystem has established patterns for automating this.
+
+### Virtual packages (pseudo-packages for hardware)
+
+Conda and pixi use **virtual packages** — solver-visible packages that represent hardware capabilities rather than installable software. The solver detects these automatically:
+
+| Virtual package | Represents |
+|----------------|------------|
+| `__cuda` | CUDA driver version |
+| `__glibc` | System glibc version |
+| `__osx` | macOS version |
+| `__linux` | Linux kernel version |
+
+This project already uses pixi's version of this mechanism via `system-requirements`:
+
+```toml
+[feature.cuda]
+system-requirements = { cuda = "12" }
+
+[feature.vllm]
+system-requirements = { cuda = "12", libc = "2.31" }
+```
+
+These constraints tell the solver "this environment requires specific hardware" — the same concept as depending on a pseudo-package like `__cuda >=12`.
+
+### Package variants
+
+**Package variants** are how conda-forge publishes multiple builds of the same package for different hardware targets (e.g., `pytorch` for CPU, CUDA 11.8, CUDA 12.1, ROCm). The solver selects the right variant based on which virtual packages are present. This is the mechanism the conda ecosystem uses to avoid requiring users to manually choose between hardware-specific packages.
+
+### The universal binary problem
+
+You can't have entirely universal binary artifacts. The options are:
+
+- **Pre-built variants**: Multiple builds per hardware target (conda-forge's approach, and what this project does with separate environments)
+- **Compile at install time**: Build from source against local hardware (e.g., `pip install llama-cpp-python` with `CMAKE_ARGS=-DGGML_CUDA=on`)
+- **Runtime dispatch**: Ship multiple code paths, detect hardware at runtime (e.g., how some libraries load CPU vs GPU shared libraries dynamically)
+
+### How this project maps to these patterns
+
+This project uses **pre-built variants via separate pixi environments** — the manual version of what package variants automate. The `cuda` environment pulls CUDA-specific wheels from a dedicated index (`abetlen.github.io/llama-cpp-python/whl/cu124`), while `default` uses the CPU-only build from PyPI. A more automated approach would encode hardware requirements as package-level constraints so the solver itself picks the right backend, removing the need for users to manually select `-e cuda` vs `-e vllm`.
+
 ## Future directions
 
+- **Solver-driven hardware selection**: Rather than manual environment selection, encode hardware requirements as virtual package constraints so `pixi run chat` automatically resolves to the best backend for the user's hardware. This is the direction that conda's package variant system is designed to support.
 - **Auto-detection tool**: A small Python package (installable in the default env) that detects GPU presence, VRAM size, and platform, then recommends which environment to use and tunes parameters (context length, memory utilization, batch size) accordingly.
 - **Smart default tasks**: The default environment's `chat` and `serve` tasks could invoke this detection tool, then delegate to the appropriate pixi environment (`pixi run -e cuda ...` or `pixi run -e vllm ...`) with hardware-appropriate flags.
 - **Quantized vLLM models**: Using AWQ or GPTQ quantized models with vLLM would reduce VRAM requirements and make the vLLM environment viable on more GPUs without manual tuning.
